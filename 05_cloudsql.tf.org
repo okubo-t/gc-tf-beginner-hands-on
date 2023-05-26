@@ -1,0 +1,110 @@
+#
+# サービス プロデューサー ネットワーク用のIP割り振りの作成
+# docs: https://cloud.google.com/vpc/docs/configure-private-services-access?hl=ja#procedure
+#
+resource "google_compute_global_address" "db_private_ip" {
+  name          = "${local.prefix}-db-private-ip"
+  address_type  = "INTERNAL"
+  purpose       = "VPC_PEERING"
+  address       = "10.240.0.0"
+  prefix_length = 24
+  network       = google_compute_network.vpc.id
+}
+
+#
+# プライベートサービスアクセス
+# docs: https://cloud.google.com/vpc/docs/configure-private-services-access?hl=ja
+#
+resource "google_service_networking_connection" "db_network_connection" {
+  network                 = google_compute_network.vpc.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.db_private_ip.name]
+}
+
+#
+# Cloud SQL 
+# docs: https://cloud.google.com/sql/docs/mysql/introduction?hl=ja
+#
+# Cloud SQL 接続について
+# docs: https://cloud.google.com/sql/docs/mysql/connect-overview?hl=ja
+#
+resource "google_sql_database_instance" "db" {
+  name             = "${local.prefix}-${local.cloudsql["instance_name"]}"
+  database_version = "POSTGRES_13"
+
+  deletion_protection = false
+  depends_on          = [google_service_networking_connection.db_network_connection]
+
+  settings {
+    tier              = "db-f1-micro"
+    availability_type = local.cloudsql["availability_type"] # docs: https://cloud.google.com/sql/docs/postgres/configure-ha?hl=ja
+    disk_size         = 10
+    disk_autoresize   = false
+    disk_type         = "PD_SSD" # docs: https://cloud.google.com/sql/docs/postgres/choosing-ssd-hdd?hl=ja#when-in-doubt-ssd
+
+    backup_configuration {
+      enabled                        = true
+      location                       = "asia"
+      start_time                     = "20:00"
+      point_in_time_recovery_enabled = true
+      transaction_log_retention_days = 2
+
+      backup_retention_settings {
+        retained_backups = 2
+        retention_unit   = "COUNT"
+      }
+    }
+
+    #
+    # プライベート IP を構成する
+    # docs: https://cloud.google.com/sql/docs/postgres/configure-private-ip?hl=ja
+    #
+    ip_configuration {
+      ipv4_enabled    = false
+      private_network = google_compute_network.vpc.id
+    }
+
+    maintenance_window {
+      day  = 6
+      hour = 20
+    }
+
+    #
+    # Query Insights
+    # docs: https://cloud.google.com/sql/docs/postgres/using-query-insights?hl=ja
+    #
+    insights_config {
+      query_insights_enabled  = true
+      query_plans_per_minute  = 5
+      query_string_length     = 1024
+      record_application_tags = false
+      record_client_address   = false
+    }
+  }
+}
+
+# NOTE: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance
+resource "google_sql_user" "db_user" {
+  instance = google_sql_database_instance.db.name
+  name     = google_secret_manager_secret_version.db_user.secret_data
+  password = google_secret_manager_secret_version.db_password.secret_data
+}
+
+# NOTE:
+# Cloud SQL Auth Proxy について
+# docs: https://cloud.google.com/sql/docs/postgres/sql-proxy?hl=ja
+#
+# Cloud SQL Auth Proxy を使用して接続する
+# docs: https://cloud.google.com/sql/docs/postgres/connect-auth-proxy?hl=ja
+#
+# $ ./cloud-sql-proxy --private-ip [INSTANCE_CONNECTION_NAME]
+# yyyy/mm/dd hh:mm:ss Authorizing with Application Default Credentials
+# yyyy/mm/dd hh:mm:ss [*******************] Listening on 127.0.0.1:5432
+# yyyy/mm/dd hh:mm:ss The proxy has started successfully and is ready for new connections!
+#
+# psql クライアントを使用して接続する
+# docs: https://cloud.google.com/sql/docs/postgres/connect-admin-ip?hl=ja 
+# 
+# $ psql "host=127.0.0.1 sslmode=disable dbname=postgres user=postgres"
+# Password for user postgres: 
+# postgres=>

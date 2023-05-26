@@ -1,0 +1,69 @@
+#
+# Cloud Armor
+# docs: https://cloud.google.com/armor/docs/security-policy-overview?hl=ja
+#
+# Google Cloud Armor と他の Google プロダクトの統合
+# docs: https://cloud.google.com/armor/docs/integrating-cloud-armor?hl=ja
+#
+# エッジ セキュリティ ポリシー
+# docs: https://cloud.google.com/armor/docs/security-policy-overview?hl=ja#edge-policies
+#
+resource "google_compute_security_policy" "edge" {
+  name        = "${local.prefix}-edge-sec-policy"
+  type        = "CLOUD_ARMOR_EDGE"
+  description = "Edge Security Policy"
+
+  rule {
+    action   = "allow"
+    priority = "1000"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = [local.cloudarmor["src_ip_ranges"]]
+      }
+    }
+  }
+
+  rule {
+    action   = "deny(403)"
+    priority = "2147483647"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+  }
+}
+
+# 
+# バックエンド セキュリティ ポリシー
+# docs: https://cloud.google.com/armor/docs/security-policy-overview?hl=ja#backend-policies
+#
+resource "google_compute_security_policy" "backend" {
+  name        = "${local.prefix}-backend-sec-policy"
+  type        = "CLOUD_ARMOR"
+  description = "BackEnd Security Policy"
+
+  rule {
+    action   = "allow"
+    priority = "1000"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = [local.cloudarmor["src_ip_ranges"]]
+      }
+    }
+  }
+
+  rule {
+    action   = "deny(403)"
+    priority = "2147483647"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+  }
+}

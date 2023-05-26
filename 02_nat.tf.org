@@ -1,0 +1,48 @@
+#
+# Cloud Router
+# docs: https://cloud.google.com/network-connectivity/docs/router/concepts/overview?hl=ja
+#
+resource "google_compute_router" "router" {
+  name    = "${local.prefix}-${local.nat["cloud_router_name"]}"
+  region  = local.region
+  network = google_compute_network.vpc.name
+}
+
+#
+# Cloud NAT
+# docs: https://cloud.google.com/nat/docs/overview?hl=ja
+#
+resource "google_compute_router_nat" "nat" {
+  name                               = "${local.prefix}-${local.nat["nat_name"]}"
+  region                             = local.region
+  router                             = google_compute_router.router.name
+  nat_ip_allocate_option             = "MANUAL_ONLY"
+  nat_ips                            = [google_compute_address.nat_ip.self_link]
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+
+  subnetwork {
+    name                    = google_compute_subnetwork.private.self_link
+    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
+
+  #log_config {
+  #  enable = true
+  #  filter = "ALL" # (ERRORS_ONLY, TRANSLATIONS_ONLY, ALL)
+  #}
+}
+
+#
+# NAT IP アドレス
+# docs: https://cloud.google.com/nat/docs/ports-and-addresses?hl=ja#addresses
+#
+resource "google_compute_address" "nat_ip" {
+  name         = "${local.prefix}-${local.nat["nat_name"]}-ip"
+  region       = local.region
+  address_type = "EXTERNAL"
+  network_tier = "PREMIUM"
+}
+
+# NATのIPアドレス
+output "nat_ip" {
+  value = google_compute_address.nat_ip.address
+}

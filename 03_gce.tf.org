@@ -1,0 +1,136 @@
+#
+# サービス アカウント
+# docs: https://cloud.google.com/compute/docs/access/service-accounts?hl=ja
+#
+resource "google_service_account" "sa" {
+  account_id   = "${local.prefix}-${local.gce["sa_name"]}"
+  display_name = "Sample Service Account"
+}
+
+resource "google_project_iam_member" "cloudsql_client" {
+  project = local.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
+
+resource "google_project_iam_member" "secretmanager_accessor" {
+  project = local.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
+
+resource "google_project_iam_member" "logging_logwriter" {
+  project = local.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
+
+resource "google_project_iam_member" "monitoring_metricWriter" {
+  project = local.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.sa.email}"
+}
+
+#
+# インスタンス テンプレート
+# docs: https://cloud.google.com/compute/docs/instance-templates?hl=ja
+#
+resource "google_compute_instance_template" "nginx" {
+  name   = "${local.prefix}-${local.gce["instance_template_name"]}"
+  region = local.region
+
+  machine_type = "e2-micro"
+
+  disk {
+    source_image = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2004-lts"
+    disk_type    = "pd-balanced"
+    disk_size_gb = "10"
+    auto_delete  = true
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.private.self_link
+
+    # Public IPを割り当てる場合は有効化
+    #access_config {
+    #  network_tier = "PREMIUM"
+    #}
+  }
+
+  metadata_startup_script = file("./files/startup_script.sh")
+
+  service_account {
+    email  = google_service_account.sa.email
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
+  tags = ["iap-ssh"]
+}
+
+#
+# マネージド インスタンス グループ（MIG）を作成するための基本的なシナリオ
+# docs: https://cloud.google.com/compute/docs/instance-groups/creating-groups-of-managed-instances?hl=ja
+#
+# インスタンス グループ
+# docs: https://cloud.google.com/compute/docs/instance-groups?hl=ja
+#
+# リージョン MIG について
+# docs: https://cloud.google.com/compute/docs/instance-groups/regional-migs?hl=ja
+#
+resource "google_compute_region_instance_group_manager" "mig" {
+  name               = "${local.prefix}-${local.gce["instance_group_name"]}"
+  base_instance_name = "${local.prefix}-${local.gce["base_instance_name"]}"
+  region             = local.region
+  target_size        = local.gce["target_size"]
+
+  named_port {
+    name = "http"
+    port = 80
+  }
+
+  distribution_policy_target_shape = "EVEN" # docs: https://cloud.google.com/compute/docs/instance-groups/regional-mig-distribution-shape?hl=ja
+  distribution_policy_zones        = local.zones
+
+  version {
+    instance_template = google_compute_instance_template.nginx.self_link
+  }
+
+  auto_healing_policies {
+    health_check      = google_compute_health_check.autoheal_check.self_link
+    initial_delay_sec = 300
+  }
+}
+
+#
+# リージョン MIG の自動スケーリング
+# docs: https://cloud.google.com/compute/docs/instance-groups/regional-migs?hl=ja#autoscaling_a_regional_mig
+#
+resource "google_compute_region_autoscaler" "autoscale" {
+  name   = "${local.prefix}-${local.gce["instance_group_name"]}-as-policy"
+  region = local.region
+  target = google_compute_region_instance_group_manager.mig.self_link
+
+  autoscaling_policy {
+    max_replicas    = local.gce["max_replicas"]
+    min_replicas    = local.gce["min_replicas"]
+    cooldown_period = 60
+
+    cpu_utilization {
+      target = 0.5
+    }
+  }
+}
+
+#
+# アプリケーションのヘルスチェックと自動修復を設定する
+# docs: https://cloud.google.com/compute/docs/instance-groups/autohealing-instances-in-migs?hl=ja
+#
+resource "google_compute_health_check" "autoheal_check" {
+  name               = "${local.prefix}-${local.gce["instance_group_name"]}-autoheal-check"
+  check_interval_sec = 5
+  timeout_sec        = 5
+
+  tcp_health_check {
+    port = "80"
+  }
+}

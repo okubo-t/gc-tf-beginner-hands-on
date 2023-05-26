@@ -1,0 +1,46 @@
+#
+# バックエンド バケットの設定
+# docs: https://cloud.google.com/cdn/docs/setting-up-cdn-with-bucket?hl=ja
+#
+resource "google_storage_bucket" "bucket" {
+  name                     = "${local.prefix}-${local.gcs["bucket_name"]}"
+  location                 = "ASIA" # https://cloud.google.com/storage/docs/locations?hl=ja
+  force_destroy            = true
+  public_access_prevention = "inherited"
+}
+
+resource "google_storage_bucket_iam_member" "storage_objectviewer" {
+  bucket = google_storage_bucket.bucket.name
+  role   = "roles/storage.objectViewer"
+  member = "allUsers"
+}
+
+resource "google_storage_bucket_object" "test_image" {
+  name   = "images/three-cats.jpg"
+  source = "./files/three-cats.jpg"
+  bucket = google_storage_bucket.bucket.name
+}
+
+resource "google_compute_backend_bucket" "backend_bucket" {
+  name        = "${local.prefix}-${local.gcs["bucket_name"]}-backend-bucket"
+  bucket_name = google_storage_bucket.bucket.name
+
+  edge_security_policy = google_compute_security_policy.edge.id
+
+  #
+  # Cloud CDN の概要
+  # docs: https://cloud.google.com/cdn/docs/overview?hl=ja
+  #
+  # Cloud CDN のトラブルシューティング
+  # docs: https://cloud.google.com/cdn/docs/troubleshooting-steps?hl=ja
+  #
+  enable_cdn = true
+  cdn_policy {
+    cache_mode        = "CACHE_ALL_STATIC"
+    client_ttl        = 60
+    default_ttl       = 60
+    max_ttl           = 60
+    negative_caching  = true
+    serve_while_stale = 3600
+  }
+}

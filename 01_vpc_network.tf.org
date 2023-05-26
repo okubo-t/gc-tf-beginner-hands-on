@@ -1,0 +1,38 @@
+#
+# VPC Network
+# docs: https://cloud.google.com/vpc/docs/vpc?hl=ja
+#
+resource "google_compute_network" "vpc" {
+  name                            = "${local.prefix}-${local.vpc_network["vpc_name"]}"
+  auto_create_subnetworks         = false    # docs: https://cloud.google.com/vpc/docs/vpc?hl=ja#subnet-ranges
+  delete_default_routes_on_create = false    # docs: https://cloud.google.com/vpc/docs/routes?hl=ja#routingpacketsinternet
+  routing_mode                    = "GLOBAL" # docs: https://cloud.google.com/vpc/docs/vpc?hl=ja#routing_for_hybrid_networks
+  description                     = "Customer VPC NetWork"
+}
+
+#
+# サブネット
+# docs: https://cloud.google.com/vpc/docs/subnets?hl=ja
+#
+# ルート
+# docs: https://cloud.google.com/vpc/docs/routes?hl=ja
+#
+## Private Subnet
+resource "google_compute_subnetwork" "private" {
+  name                     = "${local.prefix}-${local.vpc_network["subnet_name"]}"
+  network                  = google_compute_network.vpc.self_link
+  region                   = local.region
+  purpose                  = "PRIVATE" # docs: https://cloud.google.com/vpc/docs/subnets?hl=ja#purpose
+  ip_cidr_range            = local.vpc_network["ip_cidr_range"]
+  private_ip_google_access = true
+
+  #
+  # VPC フローログ
+  # docs: https://cloud.google.com/vpc/docs/flow-logs?hl=ja
+  #
+  #log_config {
+  #  aggregation_interval = "INTERVAL_10_MIN"
+  #  flow_sampling        = 0.5
+  #  metadata             = "INCLUDE_ALL_METADATA"
+  #}
+}

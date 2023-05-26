@@ -1,0 +1,33 @@
+#
+# Identity-Aware Proxy の概要
+# docs: https://cloud.google.com/iap/docs/concepts-overview?hl=ja
+#
+# TCP 転送での IAP の使用
+# docs: https://cloud.google.com/iap/docs/using-tcp-forwarding?hl=ja#gcloud_2 
+#
+# SSH 接続のトンネリング
+# docs: https://cloud.google.com/iap/docs/using-tcp-forwarding?hl=ja#tunneling_ssh_connections
+#
+resource "google_compute_firewall" "allow_iap_ssh" {
+  name    = "${local.prefix}-${local.gce["base_instance_name"]}-allow-iap-ssh"
+  network = google_compute_network.vpc.self_link
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  # IAPのトンネリングを許可する
+  source_ranges = ["35.235.240.0/20"]
+
+  # IAPを使用してSSH接続を許可するGCEインスタンスにタグを追加
+  target_tags = ["iap-ssh"]
+
+  #
+  # ファイアウォール ルールのロギング
+  # docs: https://cloud.google.com/vpc/docs/firewall-rules-logging?hl=ja
+  #
+  #log_config {
+  #  metadata = "INCLUDE_ALL_METADATA"
+  #}
+}
