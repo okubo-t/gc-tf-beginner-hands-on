@@ -90,6 +90,10 @@ resource "google_sql_user" "db_user" {
   password = google_secret_manager_secret_version.db_password.secret_data
 }
 
+output "instance_connection_name" {
+  value = google_sql_database_instance.db.connection_name
+}
+
 # NOTE:
 # Cloud SQL Auth Proxy について
 # docs: https://cloud.google.com/sql/docs/postgres/sql-proxy?hl=ja
